@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=255">
+    <title>Laurier '23</title>
+    <style>
+        body {
+            margin: 0
+        }
+
+        * {
+            font-family: Calibri, sans-serif;
+        }
+
+        .canvas_overlay {
+            position: relative;
+            background-color: ghostwhite
+        }
+
+        .canvas_overlay>.overlay {
+            position: absolute;
+            top: 20px;
+            left: 30px;
+            background-color: rgba(248, 248, 255, .8);
+            padding: 1em;
+            pointer-events: none
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas_overlay">
+        <canvas id="canvas"></canvas>
+        <div class="overlay">
+            <p id="status">Connecting...</p>
+        </div>
+        <script type="text/javascript">
+            const socket = new WebSocket(location.origin.replace(/^http/, "ws") + "/ws")
+            socket.binaryType = "blob"
+
+            function Vec2(x, y) {
+                this.x = (x === undefined) ? 0 : x
+                this.y = (y === undefined) ? 0 : y
+            }
+
+            function Rgba(r, g, b, a) {
+                this.r = r
+                this.g = g
+                this.b = b
+                this.a = a
+                this.asCssValue = () => `rgb(${this.r} ${this.g} ${this.b})`
+                this.asRaw = () => [this.r, this.b, this.g, this.a]
+            }
+
+            function drawLine(pos0, pos1) {
+                ctx.beginPath()
+                ctx.moveTo(pos0.x, pos0.y)
+                ctx.lineTo(pos1.x, pos1.y)
+                ctx.stroke()
+                ctx.closePath()
+            }
+
+            function getAbsMousePos(event, canvas) {
+                const bounds = canvas.getBoundingClientRect()
+                return new Vec2(event.clientX - bounds.left, event.clientY - bounds.top)
+            }
+
+            const colors = Array.of(
+                new Rgba(255, 0,   0,   255),
+                new Rgba(255, 255, 0,   255),
+                new Rgba(0,   255, 0,   255),
+                new Rgba(0,   255, 255, 255),
+                new Rgba(0,   0,   255, 255),
+                new Rgba(255, 0,   255, 255),
+            )
+            const userCol = colors[Math.floor(Math.random() * colors.length)]
+
+            const canvas = document.getElementById("canvas")
+            canvas.width = 240
+            canvas.height = 240
+            const ctx = canvas.getContext("2d")
+            ctx.lineWidth = 5
+            const status = document.getElementById("status")
+            const connected = new Event("connected");
+
+            socket.onmessage = event => {
+                console.log("connection")
+                if (event.data instanceof Blob) {
+                    console.log("blob")
+                    event.data.text().then(t => {
+                        var img = new Image
+                        img.src = t
+                        img.onload = function() {
+                            ctx.drawImage(img, 0, 0)
+                            status.dispatchEvent(connected)
+                        };
+                        console.log(img.src)
+                    })
+                    return
+                } else {
+                    rs = JSON.parse(event.data)
+                    switch (rs.type) {
+                        case "Draw":
+                            ctx.strokeStyle = rs.color
+                            ctx.lineWidth = rs.lineWidth
+                            drawLine(new Vec2(rs.x0, rs.y0), new Vec2(rs.x1, rs.y1))
+                            break
+                        default:
+                            console.error(`unidentified response ${rs.type}`)
+                    }
+                }
+            }
+
+            socket.onclose = event => {
+                status.innerText = "Disconnected!"
+                info.parentNode = null
+                canvas.onmousemove = null
+                canvas.onmousedown = null
+                canvas.onmouseup = null
+            }
+
+            status.addEventListener("connected", e => {
+                status.innerText = "Connected!"
+                status.parentNode.appendChild(info)
+
+                var pos0, pos1
+                var pressed = false
+
+                canvas.onmousemove = event => {
+                    if (!pressed) return
+                    pos0 = pos1
+                    pos1 = getAbsMousePos(event, canvas)
+                    ctx.strokeStyle = userCol.asCssValue()
+                    drawLine(pos0, pos1)
+                    socket.send(JSON.stringify({
+                        type: "Draw",
+                        x0: pos0.x,
+                        x1: pos1.x,
+                        y0: pos0.y,
+                        y1: pos1.y,
+                        color: userCol.asRaw(),
+                        thickness: ctx.lineWidth,
+                    }))
+                }
+                canvas.onmousedown = event => {
+                    pressed = true
+                    var cur = getAbsMousePos(event, canvas)
+                    pos0 = cur
+                    pos1 = cur
+                    drawLine(pos0, pos1)
+                }
+                canvas.onmouseup = () => pressed = false
+            })
+        </script>
+    </div>
+</body>
+</html>
